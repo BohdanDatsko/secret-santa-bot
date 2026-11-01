@@ -99,8 +99,12 @@ wishlists, or draw results.
 ### Organizer
 
 - `/admin` — open the current game's menu.
-- `/new_game Name` — create a game and make it the current game.
+- **Нова гра** in `/admin` — create a game and make it current; the bot asks
+  for its name. `/new_game Name` remains available as a shortcut.
 - `/cancel_game` — cancel the current game while it is in `SETUP`.
+- After a draw, use **Скасувати жеребкування** in `/admin` only before any
+  notification attempt; this removes the unsent assignments and returns the
+  game to `SETUP`, where a new draw can be run.
 - Use the menu to view and manage participants, configure symmetric exclusions,
   check whether a complete assignment is possible, and confirm the draw.
 - `/retry_notifications` — make failed notifications eligible for delivery
@@ -108,7 +112,9 @@ wishlists, or draw results.
 
 All administrative operations validate the Telegram ID and game ownership on
 the server. Participants and exclusions cannot be changed after the game
-reaches `DRAWN`.
+reaches `DRAWN`. Once notification delivery has been attempted, the draw cannot
+be cancelled or changed; create a new game with `/new_game Name` instead. A new
+game does not copy participants or exclusions automatically.
 
 The draw algorithm finds a complete matching using augmenting paths. Candidate
 orders are shuffled for variety, but this **does not guarantee a uniform

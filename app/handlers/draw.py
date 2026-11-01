@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.handlers.admin import _authorized_game
+from app.keyboards.admin import admin_menu
 from app.services.draw_service import DrawService
 
 router = Router(name="draw")
@@ -48,3 +49,19 @@ async def confirm_draw(
         "Результати записано; доставка повідомлень триває окремо."
     )
     await callback.answer("Результати зафіксовано.")
+
+
+@router.callback_query(F.data == "admin:cancel_draw")
+async def cancel_draw(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    game = await _authorized_game(session, settings, callback.from_user.id)
+    await DrawService().cancel_draw(session, settings, callback.from_user.id, game.id)
+    await callback.message.answer(
+        "Жеребкування скасовано до початку доставки. "
+        "Гра знову у статусі SETUP — можна сформувати новий результат.",
+        reply_markup=admin_menu(can_edit=True),
+    )
+    await callback.answer("Жеребкування скасовано.")

@@ -25,8 +25,9 @@ def create_bot(settings: Settings) -> Bot:
 
 def create_dispatcher(
     session_factory: async_sessionmaker,
+    settings: Settings,
 ) -> Dispatcher:
-    dispatcher = Dispatcher(storage=MemoryStorage())
+    dispatcher = Dispatcher(storage=MemoryStorage(), settings=settings)
     dispatcher.update.middleware(PrivateChatMiddleware())
     dispatcher.update.middleware(DatabaseSessionMiddleware(session_factory))
     routers = (
@@ -41,7 +42,8 @@ def create_dispatcher(
         dispatcher.include_router(router)
 
     @dispatcher.errors()
-    async def handle_update_error(event: ErrorEvent, exception: Exception) -> bool:
+    async def handle_update_error(event: ErrorEvent) -> bool:
+        exception = event.exception
         if isinstance(exception, ServiceError):
             response = str(exception)
         elif isinstance(exception, SQLAlchemyError):

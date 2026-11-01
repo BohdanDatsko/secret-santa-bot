@@ -35,7 +35,7 @@ async def main() -> None:
     )
     engine, session_factory = create_database(settings)
     bot = create_bot(settings)
-    dispatcher = create_dispatcher(session_factory)
+    dispatcher = create_dispatcher(session_factory, settings)
     tasks = ()
     try:
         await wait_for_database(engine)

@@ -3,6 +3,7 @@ import html
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,7 @@ from app.services.errors import PermissionDeniedError
 from app.services.game_service import GameService
 from app.services.outbox_service import OutboxService
 from app.services.participant_service import ParticipantService
+from app.states.game import GameStates
 
 router = Router(name="admin")
 
@@ -41,7 +43,11 @@ async def show_admin(
     game = await _authorized_game(session, settings, message.from_user.id)
     await message.answer(
         f"Гра «{html.escape(game.name)}» — статус <b>{game.status}</b>.",
-        reply_markup=admin_menu(game.status == "SETUP"),
+        reply_markup=admin_menu(
+            can_edit=game.status == "SETUP",
+            can_cancel_draw=game.status == "DRAWN",
+            can_create_game=game.status != "SETUP",
+        ),
     )
 
 
@@ -51,10 +57,56 @@ async def new_game(
     command: CommandObject,
     session: AsyncSession,
     settings: Settings,
+    state: FSMContext,
+) -> None:
+    if not command.args:
+        await _authorized_game(session, settings, message.from_user.id)
+        await state.set_state(GameStates.waiting_for_name)
+        await message.answer(
+            "Надішліть назву нової гри (від 1 до 120 символів). "
+            "Щоб скасувати, надішліть /cancel."
+        )
+        return
+    game = await GameService().create_game(
+        session, settings, message.from_user.id, command.args
+    )
+    await state.clear()
+    await message.answer(
+        f"Створено гру «{html.escape(game.name)}» у статусі SETUP.",
+        reply_markup=admin_menu(can_edit=True),
+    )
+
+
+@router.callback_query(F.data == "admin:new_game")
+async def begin_new_game(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    game = await _authorized_game(session, settings, callback.from_user.id)
+    if game.status == "SETUP":
+        await callback.answer("Спочатку завершіть або скасуйте поточну гру.", show_alert=True)
+        return
+    await state.set_state(GameStates.waiting_for_name)
+    await callback.message.answer(
+        "Надішліть назву нової гри (від 1 до 120 символів). "
+        "Щоб скасувати, надішліть /cancel."
+    )
+    await callback.answer()
+
+
+@router.message(GameStates.waiting_for_name, F.text)
+async def create_game_from_name(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
 ) -> None:
     game = await GameService().create_game(
-        session, settings, message.from_user.id, command.args or ""
+        session, settings, message.from_user.id, message.text
     )
+    await state.clear()
     await message.answer(
         f"Створено гру «{html.escape(game.name)}» у статусі SETUP.",
         reply_markup=admin_menu(can_edit=True),

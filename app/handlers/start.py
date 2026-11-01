@@ -32,7 +32,11 @@ async def start(
             f"Вітаю, організаторе! Поточна гра: <b>{html.escape(game.name)}</b> "
             f"({game.status}).\n"
             "Щоб створити нову гру, використайте /new_game назва.",
-            reply_markup=admin_menu(game.status == "SETUP"),
+            reply_markup=admin_menu(
+                can_edit=game.status == "SETUP",
+                can_cancel_draw=game.status == "DRAWN",
+                can_create_game=game.status != "SETUP",
+            ),
         )
         return
     await message.answer(

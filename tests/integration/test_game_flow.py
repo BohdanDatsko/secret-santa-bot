@@ -119,6 +119,67 @@ async def test_impossible_draw_rolls_back_without_partial_results(
 
 
 @pytest.mark.asyncio
+async def test_draw_can_be_cancelled_before_notification_attempts(session_factory, settings) -> None:
+    async with session_factory() as session:
+        game, participants = await create_game(session, settings)
+        game_id = game.id
+        await DrawService().draw(
+            session,
+            settings,
+            settings.admin_telegram_id,
+            game_id,
+            random.Random(19),
+        )
+
+        await DrawService().cancel_draw(session, settings, settings.admin_telegram_id, game_id)
+        saved_game = await session.get(Game, game_id)
+        assert saved_game.status == "SETUP"
+        assert saved_game.drawn_at is None
+        assert await session.scalar(select(func.count()).select_from(Assignment)) == 0
+        assert await session.scalar(select(func.count()).select_from(NotificationOutbox)) == 0
+
+        await session.commit()
+        assert (
+            await DrawService().draw(
+                session,
+                settings,
+                settings.admin_telegram_id,
+                game_id,
+                random.Random(20),
+            )
+            == len(participants)
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["PENDING", "DELIVERED"])
+async def test_draw_cannot_be_cancelled_after_notification_attempt(
+    session_factory, settings, status
+) -> None:
+    async with session_factory() as session:
+        game, _ = await create_game(session, settings)
+        game_id = game.id
+        await DrawService().draw(
+            session,
+            settings,
+            settings.admin_telegram_id,
+            game_id,
+            random.Random(21),
+        )
+        item = await session.scalar(select(NotificationOutbox).limit(1))
+        item.attempts = 1
+        item.status = status
+        await session.commit()
+
+        with pytest.raises(ConflictError, match="створіть нову гру"):
+            await DrawService().cancel_draw(session, settings, settings.admin_telegram_id, game_id)
+
+        assert (await session.get(Game, game_id)).status == "DRAWN"
+        assert await session.scalar(select(func.count()).select_from(Assignment)) == 4
+        assert await session.scalar(select(func.count()).select_from(NotificationOutbox)) == 4
+
+
+@pytest.mark.asyncio
 async def test_wishlist_is_returned_only_for_requesters_assignment(
     session_factory, settings
 ) -> None:

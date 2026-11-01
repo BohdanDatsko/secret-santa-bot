@@ -1,7 +1,7 @@
 import random
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -98,3 +98,43 @@ class DrawService:
             game.status = "DRAWN"
             game.drawn_at = datetime.now(UTC)
             return len(records)
+
+    async def cancel_draw(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        actor_telegram_id: int,
+        game_id: int,
+    ) -> None:
+        async with session.begin():
+            game = await session.scalar(select(Game).where(Game.id == game_id).with_for_update())
+            if game is None:
+                raise NotFoundError("Гру не знайдено.")
+            await require_organizer(session, settings, game, actor_telegram_id)
+            if game.status != "DRAWN":
+                raise InvalidStateError("Скасувати можна лише вже проведене жеребкування.")
+
+            outbox_items = list(
+                await session.scalars(
+                    select(NotificationOutbox)
+                    .join(Assignment, Assignment.id == NotificationOutbox.assignment_id)
+                    .where(Assignment.game_id == game_id)
+                    .with_for_update(of=NotificationOutbox)
+                )
+            )
+            if any(item.status != "PENDING" or item.attempts > 0 for item in outbox_items):
+                raise ConflictError(
+                    "Доставку результатів уже розпочато. Пари не змінено; "
+                    "для нового жеребкування створіть нову гру командою /new_game назва."
+                )
+
+            await session.execute(
+                delete(NotificationOutbox).where(
+                    NotificationOutbox.assignment_id.in_(
+                        select(Assignment.id).where(Assignment.game_id == game_id)
+                    )
+                )
+            )
+            await session.execute(delete(Assignment).where(Assignment.game_id == game_id))
+            game.status = "SETUP"
+            game.drawn_at = None
